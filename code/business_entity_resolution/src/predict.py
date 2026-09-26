@@ -220,6 +220,10 @@ def main():
 
     n_feat = len(features.NAMES) + len(strfeatures.NAMES)
     n_model = model.num_feature() if hasattr(model, "num_feature") else n_feat
+    # A model trained with REL_FEATS=1 is exactly REL_NAMES wider.
+    rel = n_model == n_feat + len(features.REL_NAMES)
+    if rel:
+        n_feat = n_model
     if n_model != n_feat:
         sys.exit(f"model.pkl was trained on {n_model} features but this code "
                  f"builds {n_feat}; retrain it with train_eval.py")
@@ -345,6 +349,9 @@ def main():
                 with stage("strfeatures.build", n=len(q), unit="pairs"):
                     Xs = strfeatures.build(corpus["recs"], names, addrs, q, c,
                                            idf_lut)
+                    if rel:
+                        Xs = np.hstack([Xs, features.relative(q, Xs,
+                                                              strfeatures.NAMES)])
                 with stage("features.build", n=len(q), unit="pairs"):
                     X = np.hstack([features.build(q, chan, is_s3,
                                                   dup[lo:hi]), Xs])

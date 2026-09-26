@@ -60,3 +60,45 @@ def build(q, chan, is_s3, name_dup=None):
     return np.column_stack([chan, n_chan, max_chan, sum_chan, rank, n_cand,
                             gap_top, ratio_top, is_s3.astype(np.float32),
                             dup]).astype(np.float32)
+
+
+# String similarities re-expressed relative to the entity's other candidates.
+# A chain sibling can score high on name and address in absolute terms; what
+# separates it from the true match is that another candidate scores higher.
+REL_BASE = ["nm_jac", "nm_cont", "nm_4gram", "ad_jac", "ad_cont", "dg_jac",
+            "nm_rare_shared"]
+REL_NAMES = ([f"{n}_{s}" for n in REL_BASE + ["combo"] for s in ("gap", "rank")]
+             + ["n_near_combo"])
+
+
+def _group_rank(q, v, starts):
+    """Rank of v within its q-group, descending (0 = best, ties share the best
+    rank). q is sorted ascending; starts are its group boundaries."""
+    order = np.lexsort((-v, q))
+    sq, sv = q[order], v[order]
+    i = np.arange(len(q))
+    new = np.r_[True, (sq[1:] != sq[:-1]) | (sv[1:] != sv[:-1])]
+    first = np.maximum.accumulate(np.where(new, i, 0))
+    gstart = np.repeat(starts, np.diff(np.r_[starts, len(q)]))
+    rank = np.empty(len(q), np.float32)
+    rank[order] = first - gstart
+    return rank
+
+
+def relative(q, Xs, str_names):
+    """REL_NAMES columns for the pairs (q sorted ascending), from the
+    strfeatures matrix Xs whose columns are str_names."""
+    if len(q) == 0:
+        return np.zeros((0, len(REL_NAMES)), np.float32)
+    starts = np.flatnonzero(np.r_[True, q[1:] != q[:-1]])
+    reps = np.diff(np.r_[starts, len(q)])
+    cols = [Xs[:, str_names.index(n)].astype(np.float32) for n in REL_BASE]
+    combo = cols[2] + cols[4]                   # name 4-gram + address containment
+    out = []
+    for v in cols + [combo]:
+        out.append(np.repeat(np.maximum.reduceat(v, starts), reps) - v)
+        out.append(_group_rank(q, v, starts))
+    gap = out[-2]
+    near = (gap <= 0.1).astype(np.float32)
+    out.append(np.add.reduceat(near, starts).repeat(reps))
+    return np.column_stack(out).astype(np.float32)

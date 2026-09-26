@@ -13,3 +13,5 @@ valstate.pkl
 *.log
 submissions/
 cache/
+code/business_entity_resolution/runs/
+code/business_entity_resolution/pred_*/
